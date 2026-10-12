@@ -49,21 +49,26 @@
 </head>
 <body>
     <h1>Capture Packets</h1>
+    <div style="margin-bottom: 20px;">
+        <a href="/" style="color: #00ff00; text-decoration: none; font-weight: bold; font-size: 14px;">&larr; Back to Network Scanner</a>
+    </div>
 
     <form id="captureForm" onsubmit="startCapture(event)">
-        <label for="interface">Network Interface (e.g., 'en0')</label><br>
-        <input type="text" id="interface" name="interface" required><br><br>
+        <label for="interface">Network Interface</label><br>
+        <input type="text" id="interface" name="interface" value="Wi-Fi" placeholder="Wi-Fi" required><br><br>
 
         <label for="start_ip">Start IP Address</label><br>
-        <input type="text" id="start_ip" name="start_ip" required><br><br>
+        <input type="text" id="start_ip" name="start_ip" value="192.168.0.1" placeholder="192.168.0.1" required><br><br>
 
         <label for="end_ip">End IP Address</label><br>
-        <input type="text" id="end_ip" name="end_ip" required><br><br>
+        <input type="text" id="end_ip" name="end_ip" value="192.168.0.254" placeholder="192.168.0.254" required><br><br>
 
         <label for="count">Number of Packets to Capture</label><br>
-        <input type="number" id="count" name="count" required><br><br>
+        <input type="number" id="count" name="count" value="10" placeholder="10" required><br><br>
 
-        <button type="submit">Start Capture</button>
+        <button type="submit" id="startBtn">Start Capture</button>
+        <button type="button" onclick="loadPackets()" style="margin-left: 10px;">Refresh List</button>
+        <span id="status-msg" style="margin-left: 15px; color: #00ff00;"></span>
     </form>
 
     <div id="packet-list">
@@ -76,32 +81,70 @@
                 </div>
             {% endfor %}
         {% else %}
-            <p>No packets captured yet.</p>
+            <p id="empty-msg">No packets captured yet.</p>
         {% endif %}
     </div>
 
     <script>
-        function startCapture(event) {
-            event.preventDefault(); // Prevent default form submission
+        let pollTimer = null;
 
-            // Collect form data
+        function startCapture(event) {
+            event.preventDefault();
+            const btn = document.getElementById('startBtn');
+            const status = document.getElementById('status-msg');
+            btn.disabled = true;
+            status.textContent = '⏳ Sniffing packets in background...';
+
             const formData = new FormData(document.getElementById('captureForm'));
 
-            // Send form data to Flask endpoint using AJAX
             fetch('/start_capture', {
                 method: 'POST',
                 body: formData
             })
             .then(response => response.text())
             .then(data => {
-                // Display alert with response message
-                alert(data);
-                // Refresh the page to update captured packets
-                location.reload();
+                status.textContent = '📡 Capture active. Polling incoming packets...';
+                // Poll /packets every 2 seconds for 12 seconds
+                let checks = 0;
+                clearInterval(pollTimer);
+                pollTimer = setInterval(() => {
+                    loadPackets();
+                    checks++;
+                    if (checks >= 8) {
+                        clearInterval(pollTimer);
+                        btn.disabled = false;
+                        status.textContent = '✅ Capture finished (or timed out).';
+                    }
+                }, 2000);
             })
             .catch(error => {
                 console.error('Error:', error);
+                status.textContent = '❌ Failed to start capture.';
+                btn.disabled = false;
             });
+        }
+
+        function loadPackets() {
+            fetch('/packets')
+                .then(r => r.json())
+                .then(data => {
+                    const list = document.getElementById('packet-list');
+                    if (!data.packets || data.packets.length === 0) {
+                        return;
+                    }
+                    list.innerHTML = '';
+                    data.packets.forEach(packet => {
+                        const div = document.createElement('div');
+                        div.className = 'packet';
+                        div.innerHTML = `
+                            <h4>IP Packet: ${packet.src_ip} &rarr; ${packet.dst_ip}</h4>
+                            <p><strong>Summary:</strong> ${packet.summary}</p>
+                            <pre><strong>Details:</strong><br>${packet.details}</pre>
+                        `;
+                        list.appendChild(div);
+                    });
+                })
+                .catch(err => console.error('Fetch error:', err));
         }
     </script>
 </body>
